@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en" data-type="software" data-radius="soft" data-buttons="solid">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A Durable Object that forgot one of the two people — Chatter3</title>
+<meta name="description" content="Cloudflare Durable Objects with the WebSocket hibernation API: a Set of sockets kept in a field is lost when the object is evicted, while the sockets stay open. One side of the call received everything, the other side received nothing.">
+<meta name="site-kind" content="software">
+<meta name="page-type" content="software">
+<link rel="canonical" href="https://chatter3-lab.github.io/durable-object-peer-loss/">
+<meta property="og:title" content="A Durable Object that forgot one of the two people">
+<meta property="og:description" content="The sockets stayed open. The list of them did not.">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://chatter3-lab.github.io/durable-object-peer-loss/">
+<meta name="theme-color" content="#fbfaf8">
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<a class="skip" href="#main">Skip to the text</a>
+
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="/">Chatter3 <span>engineering notes</span></a>
+    <nav class="nav">
+      <a href="/#notes">Notes</a>
+      <a href="/data/">The numbers</a>
+      <a class="secondary" href="/zh/">中文</a>
+      <a class="secondary" href="https://app.chatter3.com">Open the app</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <div class="page-head">
+    <div class="wrap wrap--narrow">
+      <p class="kicker">Note 3 · Cloudflare Workers · WebSockets</p>
+      <h1>A Durable Object that forgot one of the two people</h1>
+      <p class="lede">The call looked perfect on both phones: an offer, an answer, ICE candidates going out. None of them arrived. One side of the conversation was sending into a room the other side had left.</p>
+      <p class="meta">Chatter3 signalling server · one Durable Object per call session</p>
+    </div>
+  </div>
+
+  <article>
+    <div class="wrap wrap--narrow">
+
+      <h2>The symptom</h2>
+      <p>Chatter3 runs its signalling server on Cloudflare Workers: one Durable Object per call session, holding the two WebSockets of the two people. The symptom was a call that failed <em>after</em> it had been set up. The offer was created, the answer was created and received, the candidates were sent — and the connection never came up. The failure was not random: it happened when the second person had been waiting a while before the first one arrived.</p>
+      <p>Waiting a while is the clue. Waiting is what an idle Durable Object does: the platform takes it out of memory.</p>
+
+      <h2>Why the object lost half the call</h2>
+      <p>The WebSocket <strong>hibernation API</strong> is what makes a Durable Object a good home for a signalling server. <code>state.acceptWebSocket(ws)</code> hands the socket to the platform, which keeps it open even while the object itself is evicted from memory. The object can be woken up for every message.</p>
+      <p>That is exactly the trap. The socket survives the eviction. A field in your object does not.</p>
+      <pre><code>export class SignalingServer implements DurableObject {
+  state: DurableObjectState;
+  sessions: Set<WebSocket> = new Set();   // ← lost on eviction
+
+  async webSocketMessage(ws: WebSocket, msg: string): Promise<void> {
+    for (const o of this.sessions) {          // ← the set is empty now
+      if (o === ws) continue;
+      try { o.send(msg); } catch { }
+    }
+  }
+}</code></pre>
+      <p>After the eviction, the object was woken by a message, the loop walked a set that no longer contained the first socket, and the message went to the second socket only. The first person could still send — the message reached the object — but never received anything again, because the forward loop no longer knew about their socket.</p>
+
+      <div class="callout">
+        <b>Measured against the live server</b>
+        <p>After a gap of 70 seconds without traffic, the first socket received nothing while the second socket received everything. Same object, same session, same message. The difference was a field that had been emptied by the platform.</p>
+      </div>
+
+      <h2>The fix: ask the platform who is here</h2>
+      <p>The list of sockets is never kept. It is read from the platform every time it is needed, because the platform is the only party that knows it:</p>
+      <pre><code>export class SignalingServer implements DurableObject {
+  state: DurableObjectState;
+
+  constructor(s: DurableObjectState) { this.state = s; }
+
+  async fetch(r: Request): Promise<Response> {
+    if (r.headers.get('Upgrade') !== 'websocket') {
+      return new Response('Expected websocket', { status: 426 });
+    }
+    const { 0: cl, 1: sv } = new WebSocketPair();
+    // The hibernation API keeps the socket across the eviction of this
+    // object and hands it back through getWebSockets().
+    this.state.acceptWebSocket(sv);
+    return new Response(null, { status: 101, webSocket: cl });
+  }
+
+  async webSocketMessage(ws: WebSocket, msg: string): Promise<void> {
+    // A heartbeat is only there to keep the socket alive at the edge.
+    // It is swallowed here and never passed on to the other person.
+    try {
+      const parsed = JSON.parse(msg);
+      if (parsed && parsed.type === 'ping') return;
+    } catch { /* not JSON: pass it on as it is */ }
+    for (const o of this.state.getWebSockets()) {
+      if (o === ws) continue;
+      try { o.send(msg); } catch { /* the other end is gone; nothing to do */ }
+    }
+  }
+}</code></pre>
+      <p>Three things are worth noticing in the fixed version:</p>
+      <ul>
+        <li><strong>The state of the session lives in the platform.</strong> <code>state.getWebSockets()</code> is the list, and it is correct after an eviction because the platform never let go of the sockets.</li>
+        <li><strong>The heartbeat is swallowed.</strong> A <code>ping</code> keeps the socket alive at the edge and must never be forwarded, or the other side receives it as an application message.</li>
+        <li><strong>A dead socket is not an error.</strong> The catch around <code>send</code> is the normal case of the other person leaving, not an exception to be reported.</li>
+      </ul>
+
+      <h2>The general rule</h2>
+      <p>With the hibernation API, <strong>the object is a function, not a container</strong>. Anything that has to survive an eviction lives in the platform: sockets through <code>getWebSockets()</code>, state through <code>state.storage</code>, alarms through the alarm handler. A field is a scratchpad that happens to be empty some of the time — and the times it is empty are the times nobody is looking.</p>
+      <p>The same lesson shows up in the next note, where a field was not the problem but the order of two blocks of code was.</p>
+
+      <hr>
+      <p><a href="/">← All notes</a> · <a href="/route-order/">Next: a wider route ate a GDPR export request →</a></p>
+    </div>
+  </article>
+</main>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <div>
+      Chatter3 — free 1-on-1 English conversation practice.<br>
+      Written by the people who built it. The code in these notes is the code that runs.
+    </div>
+    <div class="foot-links">
+      <a href="/">All notes</a>
+      <a href="/data/">The numbers</a>
+      <a href="/zh/">中文</a>
+      <a href="https://app.chatter3.com">app.chatter3.com</a>
+      <a href="https://chatter3.com">chatter3.com</a>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

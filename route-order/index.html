@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en" data-type="software" data-radius="soft" data-buttons="solid">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A wider route ate a GDPR export request — Chatter3</title>
+<meta name="description" content="A generic GET /api/user/<id> handler sat above the GDPR export route in a single-file Worker, so /api/user/data-export answered 'User not found' for every signed-in user. The fix, the order and the test that keeps them together.">
+<meta name="site-kind" content="software">
+<meta name="page-type" content="software">
+<link rel="canonical" href="https://chatter3-lab.github.io/route-order/">
+<meta property="og:title" content="A wider route ate a GDPR export request">
+<meta property="og:description" content="Route order in a single-file Worker, and a user's right to a copy of their data.">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://chatter3-lab.github.io/route-order/">
+<meta name="theme-color" content="#fbfaf8">
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<a class="skip" href="#main">Skip to the text</a>
+
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="/">Chatter3 <span>engineering notes</span></a>
+    <nav class="nav">
+      <a href="/#notes">Notes</a>
+      <a href="/data/">The numbers</a>
+      <a class="secondary" href="/zh/">中文</a>
+      <a class="secondary" href="https://app.chatter3.com">Open the app</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <div class="page-head">
+    <div class="wrap wrap--narrow">
+      <p class="kicker">Note 4 · Cloudflare Workers · Routing</p>
+      <h1>A wider route ate a GDPR export request</h1>
+      <p class="lede">&#8220;Export my data&#8221; answered <em>User not found</em> for every signed&#8209;in user. The handler was there, it worked, it was never reached.</p>
+      <p class="meta">Chatter3 API · the third finding of the AppGallery review</p>
+    </div>
+  </div>
+
+  <article>
+    <div class="wrap wrap--narrow">
+
+      <h2>The symptom</h2>
+      <p>The account page has a &#8220;Export my data&#8221; button, and it is not decoration: under the GDPR a user has the right to a copy of everything the service holds about them. In the shipped build the button returned this, for every account, every time:</p>
+      <pre><code>{"success":false,"error":"User not found"}</code></pre>
+      <p>The message is the tell. Nobody who wrote the export route would have written that. It came from a different route entirely — the one that looks up a user by id.</p>
+
+      <h2>How a path becomes a user id</h2>
+      <p>The API is a single Worker, and its routing is a long list of <code>if</code> statements in one file. Two of them matter here:</p>
+      <pre><code>// The generic "GET /api/user/<id>" handler.
+if (p.startsWith('/api/user/') && req.method === 'GET') {
+  const uid = p.split('/').pop();          // "data-export"
+  const u = await env.DB.prepare('SELECT * FROM users WHERE id=?').bind(uid).first();
+  if (!u) return json({success:false, error:'User not found'});
+  ...
+}</code></pre>
+      <p>And, several hundred lines further down:</p>
+      <pre><code>if (p === '/api/user/data-export' && req.method === 'GET') {
+  const auth = await requireAuth(env, req);
+  ...
+  return json({success:true, exports:{ user, sessions, vocabulary, ratings, achievements }});
+}</code></pre>
+      <p>Both are in the same file. The first one is earlier. The first one matches <code>/api/user/data-export</code>, because <code>startsWith('/api/user/')</code> is true for it, and it takes the last piece of the path — <code>data-export</code> — as a user id. There is no user with that id, so it answers <em>User not found</em> and returns. The export handler below is never executed.</p>
+
+      <div class="callout">
+        <b>Why this one survived review and shipping</b>
+        <p>Both handlers were correct. The export was tested once, early, when it was the only route under <code>/api/user/</code>; the generic handler was added later, above it, and no test covered the pair. A route that is correct in isolation can still be wrong because of the routes around it.</p>
+      </div>
+
+      <h2>The fix: order, and then a second lock</h2>
+      <p>The specific route moved above the generic one. That is the necessary fix. But order alone is a promise that the next person has to remember, so the generic handler was also made to exclude the path explicitly:</p>
+      <pre><code>// -- GDPR: DATA EXPORT -------------------------------------
+// This route has to be ABOVE the generic /api/user/<id> handler below.
+// That handler matches every GET under /api/user/, so while this one sat
+// further down the file it never ran: "data-export" was taken for a user
+// id, the lookup found nothing, and the export answered
+// {"success":false,"error":"User not found"} to every signed-in user.
+// The catch-all excludes the path as well, so the two cannot drift apart
+// again if this block is ever moved.
+if (p === '/api/user/data-export' && req.method === 'GET') {
+  const auth = await requireAuth(env, req);
+  if (auth instanceof Response) return auth;
+  const uid = auth.userId;
+  ...
+}
+
+// The generic "GET /api/user/<id>" handler. It has to stay BELOW every
+// specific route under /api/user/, and it must not swallow them.
+if (p.startsWith('/api/user/') && req.method === 'GET'
+    && !p.includes('/balances') && p !== '/api/user/data-export') {
+  ...
+}</code></pre>
+      <p>Two mechanisms now protect the same thing. If the export block is ever moved down the file again, the catch&#8209;all still refuses to swallow it: it will fall through to nothing, and the test will fail loudly — instead of answering <em>User not found</em> to every user in the world.</p>
+
+      <h2>The client half</h2>
+      <p>The bug was not only on the server. When the export worked, the web app still showed nothing: it fetched the JSON and handed it to a download that a WebView cannot always perform. The page now shows the exported data in place — the user can read it, copy it, and see that the export worked before the file leaves the screen.</p>
+
+      <h2>The general rule</h2>
+      <p><strong>A catch&#8209;all route and the specific routes under it are one unit.</strong> If you write <code>if (p.startsWith('/api/user/'))</code>, you have taken a responsibility for every route that will ever live under <code>/api/user/</code> — and you have to keep that responsibility in the same edit as the route itself. The exclusion list is not redundant with the order; it is what makes the order survive the next refactor.</p>
+
+      <hr>
+      <p><a href="/">← All notes</a> · <a href="/peer-not-joined/">Next: &#8220;your network blocked the call&#8221; when the other person never arrived →</a></p>
+    </div>
+  </article>
+</main>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <div>
+      Chatter3 — free 1-on-1 English conversation practice.<br>
+      Written by the people who built it. The code in these notes is the code that runs.
+    </div>
+    <div class="foot-links">
+      <a href="/">All notes</a>
+      <a href="/data/">The numbers</a>
+      <a href="/zh/">中文</a>
+      <a href="https://app.chatter3.com">app.chatter3.com</a>
+      <a href="https://chatter3.com">chatter3.com</a>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

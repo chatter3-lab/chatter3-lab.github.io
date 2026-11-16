@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en" data-type="software" data-radius="soft" data-buttons="solid">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The timer that started before the call did — Chatter3</title>
+<meta name="description" content="A call countdown that began at the moment of the match counted the pre-call screen and the waiting as conversation. The fix: the server starts the clock when both sides are ready, and the two phones count down to the same second.">
+<meta name="site-kind" content="software">
+<meta name="page-type" content="software">
+<link rel="canonical" href="https://chatter3-lab.github.io/call-clock/">
+<meta property="og:title" content="The timer that started before the call did">
+<meta property="og:description" content="Who decides when a call starts? The server, when both people are ready.">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://chatter3-lab.github.io/call-clock/">
+<meta name="theme-color" content="#fbfaf8">
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<a class="skip" href="#main">Skip to the text</a>
+
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="/">Chatter3 <span>engineering notes</span></a>
+    <nav class="nav">
+      <a href="/#notes">Notes</a>
+      <a href="/data/">The numbers</a>
+      <a class="secondary" href="/zh/">中文</a>
+      <a class="secondary" href="https://app.chatter3.com">Open the app</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <div class="page-head">
+    <div class="wrap wrap--narrow">
+      <p class="kicker">Note 6 · WebRTC · Time</p>
+      <h1>The timer that started before the call did</h1>
+      <p class="lede">The countdown began the moment the two people were matched. The pre&#8209;call screen and the waiting for a partner who never arrived were both counted as conversation — so a five&#8209;minute call could be &#8220;finished&#8221; after ten seconds of talking.</p>
+      <p class="meta">Chatter3 call duration · the minutes a learner earns</p>
+    </div>
+  </div>
+
+  <article>
+    <div class="wrap wrap--narrow">
+
+      <h2>The symptom</h2>
+      <p>On the call screen there is a timer that counts down from five minutes. It was started when the session was created — that is, when the two people were matched — and it ran through everything that happened afterwards: reading the pre&#8209;call screen, granting the camera, waiting for the partner to press the button, and waiting for a partner who never did.</p>
+      <p>So the number on the screen and the number in the database were the same wrong number. A learner who talked for forty seconds could see the timer reach zero, and the minutes they earned for the conversation were taken from the time they spent waiting for the other person to arrive.</p>
+
+      <h2>Who decides when a call starts?</h2>
+      <p>Not the client, and not the moment of the match. The answer that works for every platform is the one the server already has: <strong>a call starts when both people have said they are ready</strong>. Only the server knows whether both have said it.</p>
+      <p>So the server records it, in one statement, so that there is no window in which two sides disagree:</p>
+      <pre><code>-- One atomic statement: the clock starts only when both sides are ready.
+UPDATE sessions SET
+  user1_ready_at = CASE WHEN user1_id = ? THEN datetime('now') ELSE user1_ready_at END,
+  user2_ready_at = CASE WHEN user2_id = ? THEN datetime('now') ELSE user2_ready_at END,
+  call_started_at = CASE
+    WHEN call_started_at IS NOT NULL THEN call_started_at   -- never moved
+    WHEN user1_ready_at IS NOT NULL AND user2_ready_at IS NOT NULL
+      THEN datetime('now')
+    ELSE NULL
+  END
+WHERE id = ? AND (user1_id = ? OR user2_id = ?);</code></pre>
+      <p>The client asks the server every two seconds until the server says the call has started, and the readiness also travels over the signalling socket, so the common case is instant and the poll is the safety net.</p>
+      <p>The duration of the call is then measured from that column, with the old <code>connected_at</code> as the fallback for the rows that predate it:</p>
+      <pre><code>export function callDuration(sess: any, now: number = Date.now()): number {
+  const raw = sess?.call_started_at || sess?.connected_at || null;
+  const ms = parseDbTimestamp(raw);
+  if (isNaN(ms)) return 0;
+  return Math.max(0, Math.floor((now - ms) / 1000));
+}</code></pre>
+      <p>A session that never reached that point has no call time at all. The waiting belongs to neither side.</p>
+
+      <h2>Two clocks, two phones</h2>
+      <p>The screen has to show the same second on both phones, and phone clocks are not clocks — they drift, and they are set by hand. The server therefore answers with its own time next to the start of the call, and the phone corrects itself:</p>
+      <pre><code>start(serverTimestamp, serverTimeMs, clientNow) {
+  const now = typeof clientNow === 'number' ? clientNow : Date.now();
+  if (typeof serverTimeMs === 'number') this.skewMs = serverTimeMs - now;
+  const ms = parseServerTimestamp(serverTimestamp);
+  if (isNaN(ms)) return false;
+  // The start of the call is written in the clock of the server, so
+  // it has to be carried over into the clock of this phone.
+  this.startMs = ms - this.skewMs;
+  return true;
+}</code></pre>
+      <p>The first version of this code had the sign the other way round, and it was wrong in a way that no amount of staring would have found: the phone that was ahead of the server counted <strong>four seconds too fast</strong>, and the two sides of a call counted down to two different moments.</p>
+
+      <div class="callout">
+        <b>How the mistake was found</b>
+        <p>The clock was moved out of the screen and into a module that can be run without a browser (<code>lib/call-clock.mjs</code>), so it could be tested like any other code. The test wrote down a phone four seconds ahead and a phone seven seconds behind, and asked them to show the same second at the same moment of the server&#8217;s clock. They did not. That test is in the repository and runs with every change.</p>
+      </div>
+
+      <h2>The proof against the live server</h2>
+      <p>Two clients, using the real module against the real server, one phone four seconds ahead and the other seven seconds behind:</p>
+      <table>
+        <thead><tr><th>Step</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td>The first side says it is ready</td><td><code>started: false</code> — the clock does not start</td></tr>
+          <tr><td>The second side says it is ready</td><td><code>started: true</code>, with one start time</td></tr>
+          <tr><td>The first side asks again</td><td>the same start time, to the second</td></tr>
+          <tr><td>Two seconds later</td><td>both phones show <strong>297 seconds</strong> — the same number, eleven seconds of clock difference between them</td></tr>
+        </tbody>
+      </table>
+      <p>And in the database, the same call:</p>
+      <pre><code>created_at      2026-11-16 13:13:06
+user1_ready_at  2026-11-16 13:13:07
+user2_ready_at  2026-11-16 13:13:08
+call_started_at 2026-11-16 13:13:08
+ended_at        2026-11-16 13:13:13
+duration        5        ← not 7</code></pre>
+      <p>Two seconds of waiting are not two seconds of conversation. Before the change the row said seven.</p>
+
+      <h2>What the user sees</h2>
+      <p>The screen says what is true at every moment. Before the call exists, the badge says <em>Waiting for your partner to join…</em> and the timer stands still at 5:00 with a line under it: <em>The timer starts when you are both ready</em>. When the server starts the clock, the badge changes to <em>Connecting…</em> and the seconds begin to run.</p>
+      <p>The thirty&#8209;second connection deadline runs from the start of the call too, not from entering the room, and a partner who never comes gets forty&#8209;five seconds and the reason <code>peer_not_joined</code> — the subject of <a href="/peer-not-joined/">the previous note</a>.</p>
+
+      <hr>
+      <p><a href="/">← All notes</a> · <a href="/data/">Next: the first 133 calls →</a></p>
+    </div>
+  </article>
+</main>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <div>
+      Chatter3 — free 1-on-1 English conversation practice.<br>
+      Written by the people who built it. The code in these notes is the code that runs.
+    </div>
+    <div class="foot-links">
+      <a href="/">All notes</a>
+      <a href="/data/">The numbers</a>
+      <a href="/zh/">中文</a>
+      <a href="https://app.chatter3.com">app.chatter3.com</a>
+      <a href="https://chatter3.com">chatter3.com</a>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

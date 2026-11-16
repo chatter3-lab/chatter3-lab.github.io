@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://chatter3-lab.github.io/sitemap.xml

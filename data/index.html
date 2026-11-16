@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en" data-type="software" data-radius="soft" data-buttons="solid">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The first 133 calls — Chatter3 engineering notes</title>
+<meta name="description" content="How long a call takes to connect, how often the partner never arrives and what the failure reasons are, measured on the live Chatter3 server: the numbers, the method, the query and the limits of the data.">
+<meta name="site-kind" content="software">
+<meta name="page-type" content="software">
+<link rel="canonical" href="https://chatter3-lab.github.io/data/">
+<meta property="og:title" content="The first 133 calls">
+<meta property="og:description" content="How long a call takes to connect, how often nobody comes, and what the old measurement got wrong.">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://chatter3-lab.github.io/data/">
+<meta name="theme-color" content="#fbfaf8">
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<a class="skip" href="#main">Skip to the text</a>
+
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="/">Chatter3 <span>engineering notes</span></a>
+    <nav class="nav">
+      <a href="/#notes">Notes</a>
+      <a href="/data/">The numbers</a>
+      <a class="secondary" href="/zh/">中文</a>
+      <a class="secondary" href="https://app.chatter3.com">Open the app</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <div class="page-head">
+    <div class="wrap wrap--narrow">
+      <p class="kicker">Measurements · live server</p>
+      <h1>The first 133 calls</h1>
+      <p class="lede">What actually happens between two people pressing &#8220;Start call&#8221;: how long the connection takes, how often the other person never arrives, and what the old measurement counted as conversation.</p>
+      <p class="meta">Taken from the production database on 17 November 2026 · aggregates only, no user data</p>
+    </div>
+  </div>
+
+  <article>
+    <div class="wrap wrap--narrow">
+
+      <h2>Read this first: what this data is</h2>
+      <p>These are <strong>133 sessions</strong> on a young product with <strong>35 registered accounts</strong>, of which 13 people appear in a session. Most of them are the team, the testers and the store reviewers. <strong>This is not a market sample and it is not a benchmark</strong> — it is a first look at a live system by the people who wrote it, published with its own limits attached so that nobody has to guess what it means.</p>
+      <p>Everything below is an aggregate. No user id, no name, no address, no timestamp of an individual session.</p>
+
+      <div class="stats">
+        <div class="stat"><div class="v">133</div><div class="k">sessions since the first match</div></div>
+        <div class="stat"><div class="v">114</div><div class="k">completed</div></div>
+        <div class="stat"><div class="v">14</div><div class="k">failed</div></div>
+        <div class="stat"><div class="v">8</div><div class="k">ended because the partner never came</div></div>
+      </div>
+
+      <h2>How a call ends</h2>
+      <p>Every session carries one reason. Before <a href="/peer-not-joined/">the split between &#8220;the partner never came&#8221; and &#8220;the network failed&#8221;</a>, all nine of the partner&#8209;absence cases were counted as network failures — and the advice about a more stable Wi‑Fi was built on them.</p>
+      <table>
+        <thead><tr><th>Reason</th><th class="num">Sessions</th><th>What it means</th></tr></thead>
+        <tbody>
+          <tr><td>no reason recorded</td><td class="num">73</td><td>the session ended without a reason being written — mostly the calls that ran their full length</td></tr>
+          <tr><td><code>hangup</code></td><td class="num">36</td><td>one of the two people ended the call</td></tr>
+          <tr><td><code>peer_not_joined</code></td><td class="num">8</td><td>the other person never pressed &#8220;Start call&#8221;</td></tr>
+          <tr><td><code>early_leave</code></td><td class="num">5</td><td>the call ended before the full length</td></tr>
+          <tr><td><code>stale_cleanup</code></td><td class="num">4</td><td>the session was cleaned up after nobody came</td></tr>
+          <tr><td><code>network_disconnect</code></td><td class="num">1</td><td>a genuine network failure</td></tr>
+          <tr><td><code>cancelled</code></td><td class="num">1</td><td>cancelled before it started</td></tr>
+        </tbody>
+      </table>
+      <p>Eight sessions where the partner never arrived, and <strong>one</strong> real network failure. The product was telling its users to fix their networks nine times out of ten.</p>
+
+      <h2>How long a call is</h2>
+      <p>This is the table that made us change the code. The durations below are the old ones — measured from the moment the two people were matched, which includes the pre&#8209;call screen and the waiting:</p>
+      <table>
+        <thead><tr><th>Measured duration</th><th class="num">Sessions</th></tr></thead>
+        <tbody>
+          <tr><td>0 s</td><td class="num">4</td></tr>
+          <tr><td>1–29 s</td><td class="num">20</td></tr>
+          <tr><td>30–59 s</td><td class="num">36</td></tr>
+          <tr><td>1–2 min</td><td class="num">15</td></tr>
+          <tr><td>2–5 min</td><td class="num">8</td></tr>
+          <tr><td>5–10 min</td><td class="num">14</td></tr>
+          <tr><td>over 10 min</td><td class="num">1</td></tr>
+          <tr><td>no duration recorded</td><td class="num">16</td></tr>
+        </tbody>
+      </table>
+      <p>Two thirds of the calls measured between 30 seconds and two minutes. On a product whose promise is a five&#8209;minute conversation, that is not a believable distribution — and it was not a distribution of conversations. It was a distribution of <em>arrivals</em>: how long it took for both people to get to the same screen.</p>
+      <p>The fix is in <a href="/call-clock/">the call clock</a>: the duration now starts when both sides are ready, and the column <code>call_started_at</code> is written by the server in the same statement that records the readiness. The table above cannot be recomputed for the old sessions, because the information they need was never stored — which is why the column was added and why the old rows keep the old number with a note.</p>
+
+      <h2>How long the connection takes</h2>
+      <p>Twenty&#8209;six sessions recorded a <code>connected</code> event with a measured time to connect. The minimum was 22.1 seconds, the maximum 221.9 seconds, the average 56.0 seconds.</p>
+      <p><strong>That average is not a connection time, and the number itself is the proof of the bug above.</strong> It was measured from the moment of the match, so it contains the waiting for the partner. A connection that takes 56 seconds to establish and a pair that took 50 seconds to arrive look identical in that field.</p>
+      <p>The same table, counted by session rather than by event, is quieter and more revealing:</p>
+      <table>
+        <thead><tr><th>ICE candidates sent</th><th class="num">Sessions</th></tr></thead>
+        <tbody>
+          <tr><td>by both people</td><td class="num">3</td></tr>
+          <tr><td>by one person only</td><td class="num">2</td></tr>
+        </tbody>
+      </table>
+      <p>Five sessions produced candidates at all, and in two of them only one side ever sent one — the signature of <a href="/durable-object-peer-loss/">the Durable Object that forgot one of the two people</a>. The other end was waiting for a message that was being delivered to a set that no longer contained its socket.</p>
+
+      <h2>The method</h2>
+      <p>So that the numbers can be checked, here is the query that produced the failure table, and the rule the durations follow:</p>
+      <pre><code>-- How a call ends
+SELECT COALESCE(disconnect_reason,'(none)') AS reason, COUNT(*) AS n
+FROM sessions WHERE status IN ('completed','failed')
+GROUP BY reason ORDER BY n DESC;
+
+-- How long a call is: from the start of the call, not from the match
+export function callDuration(sess: any, now: number = Date.now()): number {
+  const raw = sess?.call_started_at || sess?.connected_at || null;
+  const ms = parseDbTimestamp(raw);
+  if (isNaN(ms)) return 0;
+  return Math.max(0, Math.floor((now - ms) / 1000));
+}</code></pre>
+      <p>Three rules are now fixed in the code and in the tests:</p>
+      <ul>
+        <li><strong>The server decides when a call starts</strong>, in one statement, when both sides have said they are ready. It is not the moment of the match and not the moment the media connected.</li>
+        <li><strong>The clock is the server&#8217;s.</strong> The browser is told the start time and the server&#8217;s own time, so two phones with clocks eleven seconds apart show the same second.</li>
+        <li><strong>A reason is one of a shared list</strong>, validated before it is written, and a session carries exactly one of them. The statistics are built from that same list.</li>
+      </ul>
+
+      <h2>What would make this data worth more</h2>
+      <p>The honest answer is: a thousand sessions with a hundred different people in them. The three sessions that already carry a real <code>call_started_at</code> have an average wait of 4.3 seconds between the match and the start of the call — a number from three sessions, which is worth nothing on its own and is only here to show what the column will be able to say once there are more of them.</p>
+      <p>The measurement is in place. When the numbers are worth quoting, they will be quoted with the same caveat that the number of sessions is a hundred times larger.</p>
+
+      <hr>
+      <p><a href="/">← All notes</a> · <a href="https://app.chatter3.com">Practise English for free →</a></p>
+    </div>
+  </article>
+</main>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <div>
+      Chatter3 — free 1-on-1 English conversation practice.<br>
+      Written by the people who built it. The code in these notes is the code that runs.
+    </div>
+    <div class="foot-links">
+      <a href="/">All notes</a>
+      <a href="/data/">The numbers</a>
+      <a href="/zh/">中文</a>
+      <a href="https://app.chatter3.com">app.chatter3.com</a>
+      <a href="https://chatter3.com">chatter3.com</a>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

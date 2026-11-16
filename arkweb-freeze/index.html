@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en" data-type="software" data-radius="soft" data-buttons="solid">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A frozen screen, and the sentence in the documentation that said why — Chatter3</title>
+<meta name="description" content="A share button froze the HarmonyOS app: ArkWeb's onWindowNew was answered with a WebviewController that no Web component ever rendered, which blocks the render process. The fix, the code and the rule that keeps it fixed.">
+<meta name="site-kind" content="software">
+<meta name="page-type" content="software">
+<link rel="canonical" href="https://chatter3-lab.github.io/arkweb-freeze/">
+<meta property="og:title" content="A frozen screen, and the sentence in the documentation that said why">
+<meta property="og:description" content="ArkWeb, a window request, and a render process that blocked.">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://chatter3-lab.github.io/arkweb-freeze/">
+<meta name="theme-color" content="#fbfaf8">
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<a class="skip" href="#main">Skip to the text</a>
+
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="/">Chatter3 <span>engineering notes</span></a>
+    <nav class="nav">
+      <a href="/#notes">Notes</a>
+      <a href="/data/">The numbers</a>
+      <a class="secondary" href="/zh/">中文</a>
+      <a class="secondary" href="https://app.chatter3.com">Open the app</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <div class="page-head">
+    <div class="wrap wrap--narrow">
+      <p class="kicker">Note 1 · ArkWeb · HarmonyOS</p>
+      <h1>A frozen screen, and the sentence in the documentation that said why</h1>
+      <p class="lede">Pressing a share button froze the app. The page stopped answering taps, and the app had to be killed and started again. The cause was one line of code that was correct in every way except the one that mattered.</p>
+      <p class="meta">Chatter3 1.0.7 → 1.0.8 · found by the AppGallery reviewer on 11 November 2026</p>
+    </div>
+  </div>
+
+  <article>
+    <div class="wrap wrap--narrow">
+
+      <h2>The symptom</h2>
+      <p>The invite screen of Chatter3 lets you share the app with a friend. Each share button opens a small window with the share page in it. On Android and iOS that is a new browser tab, and it works. In the HarmonyOS build the app froze the moment the button was pressed: the screen stopped responding, the page behind it stopped answering taps, and the only way out was to kill the app.</p>
+      <p>This was the first of the six findings in the Huawei AppGallery review of 11 November 2026, and the one that made the build a rejection rather than a warning. The reviewer had followed the instructions on the invite screen, which is exactly what a reviewer does.</p>
+
+      <h2>What the code did</h2>
+      <p>The page opens the share window with <code>window.open()</code>. ArkWeb turns that into an <code>onWindowNew</code> event, and the host app has to answer it with a controller that will render the new window. Version 1.0.7 answered it like this:</p>
+      <pre><code>private openPopup(event: OnWindowNewEvent): void {
+  try {
+    this.popupUrl = event.targetUrl ? event.targetUrl : '';
+    event.handler.setWebController(this.popupController);   // a controller nobody renders
+    this.showPopup = true;
+  } catch (err) {
+    try { event.handler.setWebController(null); } catch (ignore) {}
+  }
+}</code></pre>
+      <p><code>popupController</code> was a <code>WebviewController</code> created in the handler. No <code>Web</code> component in the tree ever had it. The ArkWeb API reference says, about a window request that is not handed a controller that is already being rendered:</p>
+      <blockquote><p>若不调用 setWebController 接口，会造成 render 进程阻塞</p></blockquote>
+      <p>— a window request that is not given a controller that is rendered blocks the render process. The render process is the part of the engine that draws the page and answers touches. Once it was blocked, the app was not slow: it was gone, until the process was killed.</p>
+
+      <div class="callout">
+        <b>The part that makes this bug expensive</b>
+        <p>Nothing in the code is wrong in isolation. The controller is created, the URL is read, the error path is even handled. The mistake is an ordering relationship between two components — and it only shows up when the user presses a button on one screen while the engine is asked to render another.</p>
+      </div>
+
+      <h2>The fix</h2>
+      <p>The window the page asks for is now rendered by a <strong>second <code>Web</code> component that is part of the tree from the start</strong>. Its controller is therefore already attached to a rendered component when <code>setWebController()</code> is called, and there is no window in which the engine can be asked to render a controller that does not exist on screen.</p>
+      <pre><code>/**
+ * The controller of the window the page asks for.
+ *
+ * It is created once, and the Web component that renders it is part of the
+ * component tree from the start. That is the whole point: the ArkWeb
+ * documentation says that a window request whose controller is not
+ * rendered blocks the render process.
+ */
+private popupController: webview.WebviewController = new webview.WebviewController();
+
+private openPopup(event: OnWindowNewEvent): void {
+  try {
+    this.popupUrl = event.targetUrl ? event.targetUrl : '';
+    // The controller is already attached to a Web component (the one that is
+    // always in the component tree), so the engine can put the new window
+    // into it without blocking.
+    event.handler.setWebController(this.popupController);
+    this.showPopup = true;
+  } catch (err) {
+    // The engine has to be told that no new window was created, otherwise
+    // the render process blocks.
+    try { event.handler.setWebController(null); } catch (ignore) {}
+  }
+}</code></pre>
+      <p>Three things changed with it, and each one is a decision rather than a detail:</p>
+      <ul>
+        <li><strong>The window shows its own address bar.</strong> The share page is a third&#8209;party site. The user can see where they are, and the address is read from the controller as the window navigates.</li>
+        <li><strong>The window is sandboxed.</strong> A window request can come from a frame, so the new window gets no camera, no microphone, no storage and no windows of its own.</li>
+        <li><strong>The web side no longer waits forever.</strong> Every share call in the page has an eight&#8209;second deadline and always reports an outcome, so a host that cannot open a share sheet still tells the user what happened. In the HarmonyOS build there is no share sheet at all: the file is shown in an overlay inside the page.</li>
+      </ul>
+
+      <h2>The rule that keeps it fixed</h2>
+      <p>A bug this easy to reintroduce needs a rule, not a memory. The house rules of the project — the file an automated code review reads before it says anything — now carry it verbatim:</p>
+      <pre><code>1. THE WINDOW. The requested Web window is rendered by a SECOND Web
+   component that is always present in the tree, because the controller is
+   attached when setWebController() is called; a render-process block is
+   documented for the other order. Never suggest moving the window into a
+   conditional branch or creating it on demand.</code></pre>
+      <p>The same rules file carries the three other constraints of this build: the system permissions are asked at the moment the page asks for them and the page is granted only what the system granted; <code>mailto:</code>, <code>sms:</code> and <code>tel:</code> are blocked; and the version name and version code have to match the build that goes to the store.</p>
+
+      <h2>What is left</h2>
+      <p>The fix could not be tested on a real HarmonyOS phone in the lab: the emulator on the build machine had device profiles but no system image, which is a multi&#8209;gigabyte download behind an interactive licence. So the evidence for this note is the documentation, the code, and the fact that the shell no longer contains a path where the controller can be unrendered. A reviewer with a physical device is still the right final check, and that is one of the reasons this note is public.</p>
+
+      <hr>
+      <p><a href="/">← All notes</a> · <a href="/camera-permission/">Next: the camera that was granted and still denied →</a></p>
+    </div>
+  </article>
+</main>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <div>
+      Chatter3 — free 1-on-1 English conversation practice.<br>
+      Written by the people who built it. The code in these notes is the code that runs.
+    </div>
+    <div class="foot-links">
+      <a href="/">All notes</a>
+      <a href="/data/">The numbers</a>
+      <a href="/zh/">中文</a>
+      <a href="https://app.chatter3.com">app.chatter3.com</a>
+      <a href="https://chatter3.com">chatter3.com</a>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

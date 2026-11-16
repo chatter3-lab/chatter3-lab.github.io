@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en" data-type="software" data-radius="soft" data-buttons="solid">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>What a 1-on-1 video call gets wrong — Chatter3 engineering notes</title>
+<meta name="description" content="The engineering log of Chatter3, a free English conversation app: six real bugs in ArkWeb, Cloudflare Workers and WebRTC, each with the symptom, the cause, the fix and the test that keeps it fixed.">
+<meta name="site-kind" content="software">
+<meta name="page-type" content="software">
+<meta name="page-kind" content="notes">
+<link rel="canonical" href="https://chatter3-lab.github.io/">
+<meta property="og:title" content="What a 1-on-1 video call gets wrong">
+<meta property="og:description" content="Six bugs from a free 1-on-1 video call app in production, with the code that fixed them.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://chatter3-lab.github.io/">
+<meta name="twitter:card" content="summary">
+<meta name="theme-color" content="#fbfaf8">
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<a class="skip" href="#main">Skip to the text</a>
+
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="/">Chatter3 <span>engineering notes</span></a>
+    <nav class="nav">
+      <a href="/#notes">Notes</a>
+      <a href="/data/">The numbers</a>
+      <a class="secondary" href="/zh/">中文</a>
+      <a class="secondary" href="https://app.chatter3.com">Open the app</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <section class="hero">
+    <div class="wrap">
+      <h1 data-enter>What a 1-on&#8209;on video call gets wrong</h1>
+      <p class="lede" data-enter>Chatter3 is a free English conversation app: two learners, five minutes, one video call. This is the engineering log of the six bugs we found in it — the ones a store reviewer pressed, a partner never arrived for, and a data export disappeared into.</p>
+      <p class="meta" data-enter><b>Six notes</b> · ArkWeb, Cloudflare Workers, WebRTC · <b>Every fix has a test</b> · <b>No invented numbers</b></p>
+    </div>
+  </section>
+
+  <section class="notes" id="notes">
+    <div class="wrap">
+      <h2>The notes</h2>
+      <p class="section-note">Each one is a bug that reached production and was found by a person, not by a unit test. The symptom comes first, because that is the part that is hard to reproduce later.</p>
+
+      <div class="note-grid">
+        <a class="note-card" href="/arkweb-freeze/">
+          <p class="kicker">ArkWeb · HarmonyOS</p>
+          <h3>A frozen screen, and the sentence in the documentation that said why</h3>
+          <p>The share button froze the app. The cause was a window request answered with a controller that no component ever rendered — a documented way to block the render process.</p>
+        </a>
+
+        <a class="note-card" href="/camera-permission/">
+          <p class="kicker">ArkWeb · Permissions</p>
+          <h3>The camera was granted, and the app still said it was denied</h3>
+          <p>A protected resource has two permissions, not one: the system&#8209;level one and the one the page asks the host for. The shell never answered the second, so every request was refused.</p>
+        </a>
+
+        <a class="note-card" href="/durable-object-peer-loss/">
+          <p class="kicker">Cloudflare Workers · WebSockets</p>
+          <h3>A Durable Object that forgot one of the two people</h3>
+          <p>The sockets stayed open, but a field holding them was lost when the object was evicted. One side sent everything; the other side received nothing.</p>
+        </a>
+
+        <a class="note-card" href="/route-order/">
+          <p class="kicker">Cloudflare Workers · Routing</p>
+          <h3>A wider route ate a GDPR export request</h3>
+          <p>&#8220;Export my data&#8221; answered <em>User not found</em> for every signed&#8209;in user, because a generic <code>/api/user/<id></code> handler sat above it in the file.</p>
+        </a>
+
+        <a class="note-card" href="/peer-not-joined/">
+          <p class="kicker">WebRTC · Telemetry</p>
+          <h3>&#8220;Your network blocked the call&#8221; when the other person never arrived</h3>
+          <p>The failure reason was read out of the ICE statistics. But a connection that was never offered makes no candidates at all — and every statistic then looks like a blocked network.</p>
+        </a>
+
+        <a class="note-card" href="/call-clock/">
+          <p class="kicker">WebRTC · Time</p>
+          <h3>The timer that started before the call did</h3>
+          <p>The countdown began at the moment of the match, so the waiting counted as conversation. Fixing it also uncovered a sign error that made two phones count down to different seconds.</p>
+        </a>
+
+        <a class="note-card note-card--wide" href="/data/">
+          <p class="kicker">Measurements</p>
+          <h3>The first 133 calls: how long a call takes to connect, and how often nobody comes</h3>
+          <p>The method, the numbers and the limits of the data — with the query that produced them. It is a small sample from a young product, and it says so.</p>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <section class="notes">
+    <div class="wrap">
+      <h2>Why this is public</h2>
+      <p class="section-note">These are the kinds of bug that every video call app has and none of them write down. The notes are here because the fixes are more useful to the next person than the app is, and because a page with real code on it is a page a search engine can quote.</p>
+      <p><a class="btn" href="https://app.chatter3.com">Practise English for free</a> <a class="btn btn--quiet" href="/data/">Read the measurements</a></p>
+    </div>
+  </section>
+</main>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <div>
+      Chatter3 — free 1-on-1 English conversation practice.<br>
+      Written by the people who built it. The code in these notes is the code that runs.
+    </div>
+    <div class="foot-links">
+      <a href="/">All notes</a>
+      <a href="/data/">The numbers</a>
+      <a href="/zh/">中文</a>
+      <a href="https://app.chatter3.com">app.chatter3.com</a>
+      <a href="https://chatter3.com">chatter3.com</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+(function () {
+  var els = document.querySelectorAll('[data-enter]');
+  function show() { for (var i = 0; i < els.length; i++) { els[i].classList.add('in'); } }
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) { show(); return; }
+  requestAnimationFrame(function () { setTimeout(show, 60); });
+})();
+</script>
+</body>
+</html>

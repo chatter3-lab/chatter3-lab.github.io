@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en" data-type="software" data-radius="soft" data-buttons="solid">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The camera was granted, and the app still said it was denied — Chatter3</title>
+<meta name="description" content="A protected resource has two permissions: the system one and the one the page asks the host for. The HarmonyOS shell never answered onPermissionRequest, so every camera request was refused — and the page reported a denial that had not happened.">
+<meta name="site-kind" content="software">
+<meta name="page-type" content="software">
+<link rel="canonical" href="https://chatter3-lab.github.io/camera-permission/">
+<meta property="og:title" content="The camera was granted, and the app still said it was denied">
+<meta property="og:description" content="Two permissions, one answer, and a refusal nobody made.">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://chatter3-lab.github.io/camera-permission/">
+<meta name="theme-color" content="#fbfaf8">
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<a class="skip" href="#main">Skip to the text</a>
+
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="/">Chatter3 <span>engineering notes</span></a>
+    <nav class="nav">
+      <a href="/#notes">Notes</a>
+      <a href="/data/">The numbers</a>
+      <a class="secondary" href="/zh/">中文</a>
+      <a class="secondary" href="https://app.chatter3.com">Open the app</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <div class="page-head">
+    <div class="wrap wrap--narrow">
+      <p class="kicker">Note 2 · ArkWeb · Permissions</p>
+      <h1>The camera was granted, and the app still said it was denied</h1>
+      <p class="lede">The reviewer had allowed the camera in the system settings and still got a screen saying the camera permission was denied. The permission was not the problem. The answer was.</p>
+      <p class="meta">Chatter3 1.0.7 → 1.0.8 · the second finding of the AppGallery review</p>
+    </div>
+  </div>
+
+  <article>
+    <div class="wrap wrap--narrow">
+
+      <h2>The symptom</h2>
+      <p>On the call screen the app asks for the camera and the microphone. In the HarmonyOS build the request never went anywhere, and the page reported the only thing it could report: that the permission had been denied. The user had granted it in the settings. The app still said no.</p>
+
+      <h2>Two permissions, not one</h2>
+      <p>A protected resource in a WebView passes through two separate gates, and they are easy to confuse because they have the same name:</p>
+      <ol>
+        <li><strong>The system permission.</strong> <code>ohos.permission.CAMERA</code> and <code>ohos.permission.MICROPHONE</code> are declared in <code>module.json5</code> and granted by the user in the system settings. This is the one the reviewer had granted.</li>
+        <li><strong>The page permission.</strong> Every time a page asks for a protected resource, ArkWeb asks the host app through <code>onPermissionRequest</code>. The host app decides whether the page may have it, per request.</li>
+      </ol>
+      <p>Granting the first says nothing about the second. The page is not talking to the system; it is talking to the shell. And the shell had no answer to give, so the engine treated every request as a refusal.</p>
+
+      <div class="callout">
+        <b>Why this one is worth writing down</b>
+        <p>The failure is invisible in the code. There is no <code>deny()</code> anywhere, no permission list to inspect, no error to read. An unanswered callback is a refusal, and the refusal is indistinguishable from a user who said no.</p>
+      </div>
+
+      <h2>The fix: answer the question when it is asked</h2>
+      <p>The shell now answers <code>onPermissionRequest</code>, and it asks the system for the matching permission <strong>at that moment</strong> — not at start&#8209;up.</p>
+      <pre><code>private handleMediaPermission(request: PermissionRequest): void {
+  const asked: string[] = request.getAccessibleResource();
+  const wanted: string[] = [];
+  const permissions: Permissions[] = [];
+  if (asked.indexOf(ProtectedResourceType.VIDEO_CAPTURE) !== -1) {
+    wanted.push(ProtectedResourceType.VIDEO_CAPTURE);
+    permissions.push('ohos.permission.CAMERA');
+  }
+  if (asked.indexOf(ProtectedResourceType.AUDIO_CAPTURE) !== -1) {
+    wanted.push(ProtectedResourceType.AUDIO_CAPTURE);
+    permissions.push('ohos.permission.MICROPHONE');
+  }
+  if (wanted.length === 0) { request.deny(); return; }
+
+  const context = this.getUIContext().getHostContext() as Context;
+  const atManager = abilityAccessCtrl.createAtManager();
+  atManager.requestPermissionsFromUser(context, permissions)
+    .then((result: PermissionRequestResult) => {
+      let granted: boolean = true;
+      for (let i = 0; i < result.permissions.length; i++) {
+        // 0 is PERMISSION_GRANTED. Anything else is a refusal.
+        if (result.authResults[i] !== 0) { granted = false; }
+      }
+      if (granted) { request.grant(wanted); } else { request.deny(); }
+    })
+    .catch((err: BusinessError) => {
+      try { request.deny(); } catch (ignore) {}
+    });
+}</code></pre>
+      <p>Three decisions are in that code, and each of them was argued about:</p>
+      <ul>
+        <li><strong>The page is granted only what the system granted.</strong> Granting the page unconditionally would open the camera in a build whose manifest no longer asks for it, and would hide a real refusal from the user.</li>
+        <li><strong>The system is asked at the moment the page asks.</strong> The obvious alternative is to ask for the camera at launch, which is simpler. It is also wrong for this app: the system dialog at launch delays the first frame, and the time to first frame is one of the things Huawei measures. Asking late has the side benefit that the user has already arrived at a screen where the camera makes sense — they pressed <em>Start call</em>.</li>
+        <li><strong>An already&#8209;granted permission produces no dialog.</strong> <code>requestPermissionsFromUser</code> answers immediately when the user has already allowed it, which is the case the reviewer was in.</li>
+      </ul>
+
+      <h2>What the user sees now</h2>
+      <p>When the system refuses, the page says the camera was refused and offers a retry. When the system allows, the camera opens. The page never has to guess, because the shell always answers — even when the answer is no.</p>
+      <p>The same handler is attached to the second, sandboxed window of the first note, where it is deliberately limited: a window opened by a third&#8209;party frame gets no camera and no microphone at all.</p>
+
+      <hr>
+      <p><a href="/">← All notes</a> · <a href="/durable-object-peer-loss/">Next: the Durable Object that forgot one of the two people →</a></p>
+    </div>
+  </article>
+</main>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <div>
+      Chatter3 — free 1-on-1 English conversation practice.<br>
+      Written by the people who built it. The code in these notes is the code that runs.
+    </div>
+    <div class="foot-links">
+      <a href="/">All notes</a>
+      <a href="/data/">The numbers</a>
+      <a href="/zh/">中文</a>
+      <a href="https://app.chatter3.com">app.chatter3.com</a>
+      <a href="https://chatter3.com">chatter3.com</a>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

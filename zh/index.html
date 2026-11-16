@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="zh-CN" data-type="software" data-radius="soft" data-buttons="solid">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chatter3 工程笔记：一对一视频通话里真正难的部分</title>
+<meta name="description" content="Chatter3 是一对一的免费英语口语练习 App。这是它的工程笔记：ArkWeb、Cloudflare Workers 与 WebRTC 中真实出现过的六个缺陷、症状、原因、修复方法，以及保持修复不被改回去的测试。">
+<meta name="site-kind" content="software">
+<meta name="page-type" content="software">
+<meta name="page-kind" content="notes">
+<link rel="canonical" href="https://chatter3-lab.github.io/zh/">
+<meta property="og:title" content="Chatter3 工程笔记：一对一视频通话里真正难的部分">
+<meta property="og:description" content="六个真实缺陷：卡死的分享页、被拒的摄像头、忘记对端的 Durable Object、被宽路由吞掉的 GDPR 导出、以及两个都属于「计时」的问题。">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://chatter3-lab.github.io/zh/">
+<meta name="theme-color" content="#fbfaf8">
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<a class="skip" href="#main">跳到正文</a>
+
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="/zh/">Chatter3 <span>工程笔记</span></a>
+    <nav class="nav">
+      <a href="/zh/#notes">六篇笔记</a>
+      <a href="/data/">数据</a>
+      <a class="secondary" href="/">English</a>
+      <a class="secondary" href="https://app.chatter3.com">打开 App</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <section class="hero">
+    <div class="wrap">
+      <h1 data-enter>一对一视频通话里真正难的部分</h1>
+      <p class="lede" data-enter>Chatter3 是一个免费的英语口语练习 App：两个人，五分钟，一次视频通话。这里是它的工程笔记——六个在真实环境里出现过的缺陷，每一个都写清楚症状、原因、修复，以及保持修复不被改回去的测试。</p>
+      <p class="meta" data-enter><b>六篇笔记</b> · ArkWeb / Cloudflare Workers / WebRTC · <b>每个修复都有测试</b> · <b>数字全部来自线上数据库</b></p>
+    </div>
+  </section>
+
+  <section class="notes" id="notes">
+    <div class="wrap">
+      <h2>六篇笔记</h2>
+      <p class="section-note">每一个都是被人发现的，不是被单元测试发现的。先写症状，因为症状是最难在事后复现的部分。</p>
+
+      <div class="note-grid">
+        <a class="note-card" href="/arkweb-freeze/">
+          <p class="kicker">ArkWeb · HarmonyOS</p>
+          <h3>卡死的分享页，和文档里那句解释原因的话</h3>
+          <p>按下分享按钮，App 直接卡死。原因是窗口请求交给了一个没有任何组件渲染的控制器——文档明确写着这样会阻塞渲染进程。</p>
+        </a>
+
+        <a class="note-card" href="/camera-permission/">
+          <p class="kicker">ArkWeb · 权限</p>
+          <h3>用户已经授权，App 却仍然说摄像头被拒绝</h3>
+          <p>受保护资源有两层权限：系统那一层，和页面向宿主请求的那一层。宿主从未回答第二次请求，于是每一次都被拒绝了。</p>
+        </a>
+
+        <a class="note-card" href="/durable-object-peer-loss/">
+          <p class="kicker">Cloudflare Workers · WebSocket</p>
+          <h3>忘记了一个人的 Durable Object</h3>
+          <p>WebSocket 仍然开着，但保存它们的那个字段在对象被回收时消失了。一边把消息全部发了出去，另一边什么也没收到。</p>
+        </a>
+
+        <a class="note-card" href="/route-order/">
+          <p class="kicker">Cloudflare Workers · 路由</p>
+          <h3>一条更宽的路由吃掉了 GDPR 导出请求</h3>
+          <p>「导出我的数据」对每一个已登录用户都返回 <em>User not found</em>：因为通用的 <code>/api/user/<id></code> 处理函数在文件里排在它前面。</p>
+        </a>
+
+        <a class="note-card" href="/peer-not-joined/">
+          <p class="kicker">WebRTC · 遥测</p>
+          <h3>对方根本没来，却被告知是你的网络挡住了</h3>
+          <p>失败原因是从 ICE 统计里读出来的。但一个从未发起 offer 的连接不会产生任何候选，于是所有统计看起来都像网络被拦。</p>
+        </a>
+
+        <a class="note-card" href="/call-clock/">
+          <p class="kicker">WebRTC · 时间</p>
+          <h3>在通话开始之前就开始的计时器</h3>
+          <p>倒计时从匹配那一刻开始，把等待也算成了对话。修它的时候还发现一个符号错误，让两台手机倒数到了不同的秒数。</p>
+        </a>
+
+        <a class="note-card note-card--wide" href="/data/">
+          <p class="kicker">实测数据</p>
+          <h3>前 133 次通话：连接要多久，对方没来的比例是多少</h3>
+          <p>方法、数字，以及这份数据的边界——附上产生它的查询语句。这是一份来自很早期产品的样本，所以它自己写清楚了这一点。</p>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <section class="notes">
+    <div class="wrap">
+      <h2>为什么公开</h2>
+      <p class="section-note">这些是每个视频通话 App 都会遇到、却没有人写下来的缺陷。公开它们，是因为修复方法对下一个人的用处，大于这个 App 本身；也是因为一篇有真实代码的页面，才有可能被搜索引擎引用。</p>
+      <p><a class="btn" href="https://app.chatter3.com">免费练习英语口语</a> <a class="btn btn--quiet" href="/data/">看实测数据</a></p>
+    </div>
+  </section>
+</main>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <div>
+      Chatter3 — 免费的一对一英语口语练习。<br>
+      由做这个产品的人写的。笔记里的代码，就是在跑的代码。
+    </div>
+    <div class="foot-links">
+      <a href="/zh/">全部笔记</a>
+      <a href="/data/">数据</a>
+      <a href="/">English</a>
+      <a href="https://app.chatter3.com">app.chatter3.com</a>
+      <a href="https://chatter3.com">chatter3.com</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+(function () {
+  var els = document.querySelectorAll('[data-enter]');
+  function show() { for (var i = 0; i < els.length; i++) { els[i].classList.add('in'); } }
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) { show(); return; }
+  requestAnimationFrame(function () { setTimeout(show, 60); });
+})();
+</script>
+</body>
+</html>

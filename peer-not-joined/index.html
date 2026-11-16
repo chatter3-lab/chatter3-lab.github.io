@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en" data-type="software" data-radius="soft" data-buttons="solid">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>“Your network blocked the call” when the other person never arrived — Chatter3</title>
+<meta name="description" content="A peer connection that was never offered makes no ICE candidates, so every statistic looks like a blocked network. Checking whether the partner came at all has to happen before the statistics are read — and the telemetry has to agree.">
+<meta name="site-kind" content="software">
+<meta name="page-type" content="software">
+<link rel="canonical" href="https://chatter3-lab.github.io/peer-not-joined/">
+<meta property="og:title" content="“Your network blocked the call” when the other person never arrived">
+<meta property="og:description" content="Nothing about the network can be concluded from a call in which the other person never came.">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://chatter3-lab.github.io/peer-not-joined/">
+<meta name="theme-color" content="#fbfaf8">
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<a class="skip" href="#main">Skip to the text</a>
+
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="/">Chatter3 <span>engineering notes</span></a>
+    <nav class="nav">
+      <a href="/#notes">Notes</a>
+      <a href="/data/">The numbers</a>
+      <a class="secondary" href="/zh/">中文</a>
+      <a class="secondary" href="https://app.chatter3.com">Open the app</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <div class="page-head">
+    <div class="wrap wrap--narrow">
+      <p class="kicker">Note 5 · WebRTC · Telemetry</p>
+      <h1>&#8220;Your network blocked the call&#8221; when the other person never arrived</h1>
+      <p class="lede">The app sent its users off to debug a router that was fine. The partner simply had not pressed the button. Everything the app knew was true, and the conclusion it drew from it was wrong.</p>
+      <p class="meta">Chatter3 call telemetry · 10 and 11 November 2026</p>
+    </div>
+  </div>
+
+  <article>
+    <div class="wrap wrap--narrow">
+
+      <h2>The symptom</h2>
+      <p>A user pressed <em>Start call</em>, waited, and got a screen that said the connection could not be established and that it looked like their network was blocking it. There was a button to report a connection issue. The user was being asked to fix their network.</p>
+      <p>The truth was simpler: the other person was still on the pre&#8209;call screen and had not pressed <em>Start call</em> either. They never arrived.</p>
+
+      <h2>Why the statistics said &#8220;network&#8221;</h2>
+      <p>When a call does not come up, the app collects what the browser knows about the connection: the ICE connection state, the connection state, the gathering state, and every candidate pair the agent knows about. That is the right instinct — without it, the server only learns that a call failed, and a call that failed because no relay candidate was made looks exactly like a call that failed because the network dropped the packets.</p>
+      <p>But the diagnosis was built from those statistics alone:</p>
+      <pre><code>const failureReason = (rep) => {
+  if (!rep) return 'unknown';
+  if (rep.connection_state === 'failed' || rep.ice_connection_state === 'failed') {
+    if ((rep.relay_candidates || []).length === 0) return 'no_relay_candidate';
+    return 'no_route';
+  }
+  if (rep.gathering_state && rep.gathering_state !== 'complete') return 'gathering_incomplete';
+  if (rep.connection_state === 'disconnected' || rep.ice_connection_state === 'disconnected') return 'dropped';
+  return 'unknown';
+};</code></pre>
+      <p>Here is the problem with that code. A peer connection that was <strong>never offered</strong> — because the other side never joined the room — makes no candidates at all. The ICE agent stays in the state <code>new</code>. And an ICE agent in the state <code>new</code>, with no candidates, looks exactly like a connection whose details never made it through a broken network.</p>
+      <p>The statistics were not lying. They were answering a question nobody asked them. The question was never &#8220;what did the network do?&#8221; — it was &#8220;did the other person ever come into the room?&#8221;</p>
+
+      <h2>The fix: ask the first question first</h2>
+      <pre><code>const failureReason = (rep) => {
+  // The other person never came into the room.
+  //
+  // This has to be checked FIRST. A peer connection that is never
+  // offered makes no candidates at all, so the ICE agent stays in the
+  // state "new" and every statistic looks like a network that blocked
+  // the connection details.
+  //
+  // Nothing about the network can be concluded from a call in which the
+  // other person never arrived, so this is its own reason.
+  if (!peerSeenRef.current) return 'peer_not_joined';
+  if (!rep) return 'unknown';
+  ...
+};</code></pre>
+      <p>One check, placed above the rest, and the message becomes true: <strong>your partner never came</strong>. The user is not sent to debug a router; they are told to wait, or to try again later, or to look for a partner who has actually pressed the button.</p>
+
+      <h2>The rest of the fix is on the server</h2>
+      <p>A correct reason on the screen is worth little if the data behind it is a mess. Three things had to agree:</p>
+      <ol>
+        <li><strong>One list of reasons.</strong> The browser and the server used to have their own ideas of what a failure was called. They now share one list, in one file, and the reason a browser sends is validated against it before it is written. A reason already on the session is kept rather than overwritten.</li>
+        <li><strong>One bucket per session in the statistics.</strong> The dashboard used to count a session in more than one bar, because the categories were read from different columns with different meanings. Every session now lands in exactly one bucket, and the buckets are built from the same list the app writes.</li>
+        <li><strong>Partner absence is not a network problem for the learner.</strong> The advice engine turned failure reasons into &#8220;try a more stable Wi‑Fi&#8221;. A partner who never pressed the button says nothing about the learner's Wi‑Fi, so it is excluded from the pattern that produces that advice.</li>
+      </ol>
+      <p>There is one more small thing with a large effect: the button to report the partner is not shown at all when the partner never arrived. Asking someone to report a person who was not there is both useless and unfair to them.</p>
+
+      <div class="callout">
+        <b>What this changed for the people using the app</b>
+        <p>Before: &#8220;it looks like your network blocked the connection — try a more stable Wi‑Fi, check your firewall.&#8221; After: &#8220;Your partner has not joined yet.&#8221; The second one is true, and it is the only one of the two that can be acted on.</p>
+      </div>
+
+      <h2>How often it happens</h2>
+      <p>In the first measured set of 133 sessions, <strong>8 ended with <code>peer_not_joined</code></strong> and one with a genuine <code>network_disconnect</code>. Before the split, all nine were counted as network failures — and the advice about Wi‑Fi was built on them. The full table is in <a href="/data/">the measurements</a>.</p>
+
+      <hr>
+      <p><a href="/">← All notes</a> · <a href="/call-clock/">Next: the timer that started before the call did →</a></p>
+    </div>
+  </article>
+</main>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <div>
+      Chatter3 — free 1-on-1 English conversation practice.<br>
+      Written by the people who built it. The code in these notes is the code that runs.
+    </div>
+    <div class="foot-links">
+      <a href="/">All notes</a>
+      <a href="/data/">The numbers</a>
+      <a href="/zh/">中文</a>
+      <a href="https://app.chatter3.com">app.chatter3.com</a>
+      <a href="https://chatter3.com">chatter3.com</a>
+    </div>
+  </div>
+</footer>
+</body>
+</html>
