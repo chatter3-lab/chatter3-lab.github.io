@@ -27,6 +27,28 @@ and where a page that waits on a third party is a page that does not arrive.
 The site is served by GitHub Pages from the `main` branch, at
 `https://chatter3-lab.github.io`. Push to `main` and it is live.
 
+## Telling Bing about a change
+
+GitHub Pages submits nothing by itself, so after every change to a note
+the pages have to be handed to the engines that speak IndexNow:
+
+```
+node tools/submit-indexnow.mjs               every page
+node tools/submit-indexnow.mjs /call-clock/  one page
+```
+
+The key is in the root of the site (`{key}.txt`, the name the protocol
+asks for) and in `indexnow.key` for the script. No account and no API key
+is needed: the key file on the site is the proof. The answer is printed —
+`200` accepted, `202` accepted and still being checked.
+
+The site was added to Bing Webmaster Tools on 17 November 2026 with its
+own verified property (`BingSiteAuth.xml` in the root), and its sitemap
+was submitted there.
+
+Baidu does not speak IndexNow. The way in for Baidu is the ordinary
+submission in 百度站长平台, once the property exists.
+
 ## Writing a note
 
 1. Start from the symptom. It is the part that is hard to reproduce later.
