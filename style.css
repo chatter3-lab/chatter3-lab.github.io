@@ -95,8 +95,10 @@ body {
 .hero .meta { display: flex; flex-wrap: wrap; gap: 10px 26px; color: var(--muted); font-size: 15px; }
 .hero .meta b { color: var(--ink); font-weight: 600; }
 
-[data-enter] { opacity: 0; transform: translateY(12px); }
-[data-enter].in { opacity: 1; transform: none; transition: opacity 0.55s ease, transform 0.55s ease; }
+/* The hero enters once, but only when the browser can run the script that
+   animates it. Without JavaScript the text is simply there. */
+.js [data-enter] { opacity: 0; transform: translateY(12px); }
+.js [data-enter].in { opacity: 1; transform: none; transition: opacity 0.55s ease, transform 0.55s ease; }
 
 /* ------------------------------------------------------------ buttons */
 .btn {
@@ -267,5 +269,5 @@ figcaption { font-size: 14px; color: var(--muted); margin-top: 8px; }
 
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
-  [data-enter] { opacity: 1; transform: none; }
+  .js [data-enter] { opacity: 1; transform: none; }
 }
