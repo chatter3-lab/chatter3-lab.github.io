@@ -96,9 +96,11 @@ body {
 .hero .meta b { color: var(--ink); font-weight: 600; }
 
 /* The hero enters once, but only when the browser can run the script that
-   animates it. Without JavaScript the text is simply there. */
-.js [data-enter] { opacity: 0; transform: translateY(12px); }
-.js [data-enter].in { opacity: 1; transform: none; transition: opacity 0.55s ease, transform 0.55s ease; }
+   animates it. The text is never faded and never invisible: it settles
+   into place, so a crawler, a printer and a screenshot all read the same
+   page as the reader does. */
+.js [data-enter] { transform: translateY(12px); }
+.js [data-enter].in { transform: none; transition: transform 0.5s ease; }
 
 /* ------------------------------------------------------------ buttons */
 .btn {
@@ -269,5 +271,5 @@ figcaption { font-size: 14px; color: var(--muted); margin-top: 8px; }
 
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
-  .js [data-enter] { opacity: 1; transform: none; }
+  .js [data-enter] { transform: none; }
 }
