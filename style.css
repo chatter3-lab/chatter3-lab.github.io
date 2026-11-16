@@ -69,11 +69,12 @@ body {
   text-decoration: none;
   font-size: 15px;
   padding: 4px 0;
+  white-space: nowrap;
   border-bottom: 1.5px solid transparent;
   transition: color 0.18s ease, border-color 0.18s ease;
 }
 .nav a:hover { color: var(--ink); border-bottom-color: var(--accent); }
-@media (max-width: 720px) { .nav a.secondary { display: none; } }
+@media (max-width: 720px) { .nav a.secondary { display: none; } .nav { gap: 16px; } .nav a { font-size: 14px; } }
 
 /* --------------------------------------------------------------- hero */
 .hero { padding: 84px 0 72px; border-bottom: 1px solid var(--line); }
@@ -92,8 +93,9 @@ body {
   color: var(--muted);
   max-width: 58ch;
 }
-.hero .meta { display: flex; flex-wrap: wrap; gap: 10px 26px; color: var(--muted); font-size: 15px; }
+.hero .meta { display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--muted); font-size: 15px; }
 .hero .meta b { color: var(--ink); font-weight: 600; }
+.hero .meta span:not(:last-child)::after { content: "·"; margin-left: 18px; color: #b9b3a4; }
 
 /* The hero enters once, but only when the browser can run the script that
    animates it. The text is never faded and never invisible: it settles
