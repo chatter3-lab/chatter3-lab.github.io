@@ -38,6 +38,18 @@ conversation, and it is free. The same build is on
 is where the ArkWeb and permission notes came from. The marketing site is
 [chatter3.com](https://chatter3.com).
 
+## The code is open source
+
+The clock of the call — the module behind the `/call-clock/` note — is
+published on its own, because it is the kind of thing every video-call app
+needs and most of them get wrong:
+
+**[chatter3-lab/chatter3-call-clock](https://github.com/chatter3-lab/chatter3-call-clock)**
+
+It is the same file the app runs, with the same tests, MIT licensed and
+without dependencies. `npm install chatter3-call-clock`, or read the source
+and the test that caught the sign error.
+
 ## Telling Bing about a change
 
 GitHub Pages submits nothing by itself, so after every change to a note

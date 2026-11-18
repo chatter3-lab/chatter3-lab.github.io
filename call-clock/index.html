@@ -91,6 +91,11 @@ WHERE id = ? AND (user1_id = ? OR user2_id = ?);</code></pre>
         <p>The clock was moved out of the screen and into a module that can be run without a browser (<code>lib/call-clock.mjs</code>), so it could be tested like any other code. The test wrote down a phone four seconds ahead and a phone seven seconds behind, and asked them to show the same second at the same moment of the server&#8217;s clock. They did not. That test is in the repository and runs with every change.</p>
       </div>
 
+      <div class="callout">
+        <b>The module is open source</b>
+        <p>The clock is now a package of its own — <a href="https://github.com/chatter3-lab/chatter3-call-clock"><code>chatter3-call-clock</code> on GitHub</a>, MIT, no dependencies. It is the same file the app runs, with the same tests, so the two cannot drift apart. If you are building a call of your own and the countdown keeps disagreeing with the other side, this is the part that answers it.</p>
+      </div>
+
       <h2>The proof against the live server</h2>
       <p>Two clients, using the real module against the real server, one phone four seconds ahead and the other seven seconds behind:</p>
       <table>
@@ -130,6 +135,7 @@ duration        5        ← not 7</code></pre>
     <div class="foot-links">
       <a href="/">All notes</a>
       <a href="/data/">The numbers</a>
+      <a href="https://github.com/chatter3-lab/chatter3-call-clock">The package</a>
       <a href="/zh/">中文</a>
       <a href="https://app.chatter3.com">app.chatter3.com</a>
       <a href="https://chatter3.com">chatter3.com</a>
