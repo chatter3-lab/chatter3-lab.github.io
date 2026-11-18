@@ -48,7 +48,18 @@ needs and most of them get wrong:
 
 It is the same file the app runs, with the same tests, MIT licensed and
 without dependencies. `npm install chatter3-call-clock`, or read the source
-and the test that caught the sign error.
+and the test that caught the sign error. It is also published on npm as
+**[chatter3-call-clock](https://www.npmjs.com/package/chatter3-call-clock)**.
+
+## Where the notes are published
+
+The same six bugs, written up as one story, in three places. Each one links
+back to the notes and to the app:
+
+- [Medium](https://medium.com/@chatter3_lab/six-production-bugs-in-a-webrtc-app-with-the-tests-that-keep-them-fixed-aef40ace1c3a)
+- [dev.to](https://dev.to/chatter3_lab/six-production-bugs-in-a-webrtc-app-with-the-tests-that-keep-them-fixed-25oj)
+- [Hashnode](https://hashnode.com/posts/six-production-bugs-in-a-webrtc-app-with-the-tests-that-keep-them-fixed/6afd4846d442bab38e0895c0)
+
 
 ## Telling Bing about a change
 
