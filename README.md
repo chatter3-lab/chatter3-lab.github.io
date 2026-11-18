@@ -1,8 +1,10 @@
 # Chatter3 engineering notes
 
-The engineering log of [Chatter3](https://chatter3.com), a free 1-on-1 English
-conversation app. Six bugs that reached production, each with the symptom, the
-cause, the fix and the test that keeps it fixed.
+The engineering log of [Chatter3](https://app.chatter3.com), a free 1-on-1
+English conversation app — the [web app](https://app.chatter3.com) and the
+[HarmonyOS build](https://appgallery.huawei.com) on Huawei AppGallery. Six
+bugs that reached production, each with the symptom, the cause, the fix and
+the test that keeps it fixed.
 
 The site is plain HTML and one stylesheet. There is no build step, no
 framework, no font from a CDN and no analytics script — the notes have to be
@@ -26,6 +28,15 @@ and where a page that waits on a third party is a page that does not arrive.
 
 The site is served by GitHub Pages from the `main` branch, at
 `https://chatter3-lab.github.io`. Push to `main` and it is live.
+
+## The app these notes are about
+
+[app.chatter3.com](https://app.chatter3.com) is the live web app — sign in
+with an email address, get matched with a partner for a one-to-one video
+conversation, and it is free. The same build is on
+[Huawei AppGallery](https://appgallery.huawei.com) as a HarmonyOS app, which
+is where the ArkWeb and permission notes came from. The marketing site is
+[chatter3.com](https://chatter3.com).
 
 ## Telling Bing about a change
 
