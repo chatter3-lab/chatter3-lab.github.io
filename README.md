@@ -49,7 +49,9 @@ needs and most of them get wrong:
 It is the same file the app runs, with the same tests, MIT licensed and
 without dependencies. `npm install chatter3-call-clock`, or read the source
 and the test that caught the sign error. It is also published on npm as
-**[chatter3-call-clock](https://www.npmjs.com/package/chatter3-call-clock)**.
+**[chatter3-call-clock](https://www.npmjs.com/package/chatter3-call-clock)**,
+and the 1.0.0 release is archived with a DOI on
+**[Zenodo](https://zenodo.org/records/24357991)**.
 
 ## Where the notes are published
 
@@ -63,8 +65,10 @@ back to the notes and to the app:
 
 The call clock also has a one-page summary as a
 [GitHub Gist](https://gist.github.com/rkj-c3/0881f4837f5694165c9cd8d26cff5bd1),
-so that the README of the package, the gist and the note all point at the
-same two places.
+and a DOI on
+[Zenodo](https://zenodo.org/records/24357991),
+so that the README of the package, the gist, the archive and the note all
+point at the same two places.
 
 
 ## Telling Bing about a change
