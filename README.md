@@ -53,12 +53,18 @@ and the test that caught the sign error. It is also published on npm as
 
 ## Where the notes are published
 
-The same six bugs, written up as one story, in three places. Each one links
+The same six bugs, written up as one story, in four places. Each one links
 back to the notes and to the app:
 
 - [Medium](https://medium.com/@chatter3_lab/six-production-bugs-in-a-webrtc-app-with-the-tests-that-keep-them-fixed-aef40ace1c3a)
 - [dev.to](https://dev.to/chatter3_lab/six-production-bugs-in-a-webrtc-app-with-the-tests-that-keep-them-fixed-25oj)
 - [Hashnode](https://hashnode.com/posts/six-production-bugs-in-a-webrtc-app-with-the-tests-that-keep-them-fixed/6afd4846d442bab38e0895c0)
+- [Tumblr](https://www.tumblr.com/chatter3-lab) — the blog `@chatter3-lab`, "Chatter3 Engineering Notes"
+
+The call clock also has a one-page summary as a
+[GitHub Gist](https://gist.github.com/rkj-c3/0881f4837f5694165c9cd8d26cff5bd1),
+so that the README of the package, the gist and the note all point at the
+same two places.
 
 
 ## Telling Bing about a change
